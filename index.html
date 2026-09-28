@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScreenShare Realtime - WebRTC</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .hide { display: none !important; }
+        .toast-enter { transform: translateY(-100%); opacity: 0; }
+        .toast-enter-active { transform: translateY(0); opacity: 1; transition: all 0.3s ease-out; }
+        .toast-exit { transform: translateY(0); opacity: 1; }
+        .toast-exit-active { transform: translateY(-100%); opacity: 0; transition: all 0.3s ease-in; }
+        /* Custom scrollbar for clean look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col antialiased">
+
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2"></div>
+
+    <div id="loading-screen" class="flex-1 flex flex-col items-center justify-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mb-4"></div>
+        <h2 class="text-xl font-semibold text-gray-300">Connecting to Network...</h2>
+    </div>
+
+    <div id="home-screen" class="hide flex-1 flex flex-col items-center justify-center p-4">
+        <div class="max-w-md w-full bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-700">
+            <div class="p-8 text-center bg-gray-800/50">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-500/20 text-blue-400 mb-6">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                </div>
+                <h1 class="text-3xl font-bold text-white mb-2">ScreenShare</h1>
+                <p class="text-gray-400 mb-8">Share your screen in real-time with anyone, instantly.</p>
+                
+                <button id="btn-create-room" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-4 rounded-xl transition duration-200 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    Create New Room
+                </button>
+                
+                <div class="relative flex py-6 items-center">
+                    <div class="flex-grow border-t border-gray-600"></div>
+                    <span class="flex-shrink-0 mx-4 text-gray-500 text-sm">or join existing</span>
+                    <div class="flex-grow border-t border-gray-600"></div>
+                </div>
+
+                <div class="flex flex-col space-y-3">
+                    <input type="text" id="input-room-id" placeholder="Enter Room ID" class="w-full bg-gray-900 border border-gray-600 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition text-center uppercase tracking-widest font-mono">
+                    <button id="btn-join-room" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 px-4 rounded-xl transition duration-200">
+                        Join Room
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="mt-8 text-sm text-gray-500" id="user-info-display"></div>
+    </div>
+
+    <div id="room-screen" class="hide flex-1 flex flex-col h-screen max-h-screen overflow-hidden">
+        <!-- Header -->
+        <header class="bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center z-10 shadow-md flex-shrink-0">
+            <div class="flex items-center space-x-4">
+                <div class="flex flex-col">
+                    <span class="text-xs text-gray-400 font-semibold uppercase tracking-wider">Room ID</span>
+                    <div class="flex items-center space-x-2">
+                        <span id="display-room-id" class="text-xl font-mono font-bold text-blue-400">------</span>
+                        <button id="btn-copy-room" class="text-gray-400 hover:text-white transition" title="Copy Room ID">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <button id="btn-leave-room" class="bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/30 font-medium py-2 px-4 rounded-lg transition duration-200 flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                Leave
+            </button>
+        </header>
+
+        <!-- Main Video Area -->
+        <main class="flex-1 bg-gray-900 relative p-4 flex items-center justify-center overflow-hidden">
+            <!-- Placeholder when no one is sharing -->
+            <div id="video-placeholder" class="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none transition-opacity duration-300">
+                <div class="w-24 h-24 mb-4 rounded-full bg-gray-800 flex items-center justify-center border border-gray-700 shadow-xl">
+                    <svg class="w-12 h-12 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                </div>
+                <h3 id="status-text" class="text-xl font-medium text-gray-300">Waiting for screen share...</h3>
+            </div>
+            
+            <!-- Video Element -->
+            <video id="main-video" class="w-full h-full max-w-6xl object-contain bg-black rounded-xl shadow-2xl border border-gray-800 opacity-0 transition-opacity duration-500" autoplay playsinline></video>
+        </main>
+
+        <!-- Bottom Controls -->
+        <footer class="bg-gray-800 border-t border-gray-700 p-4 flex justify-center z-10 flex-shrink-0">
+            <button id="btn-share-screen" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-8 rounded-full transition duration-200 flex items-center shadow-[0_0_15px_rgba(37,99,235,0.4)] hover:shadow-[0_0_25px_rgba(37,99,235,0.6)]">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                <span id="share-btn-text">Share Screen</span>
+            </button>
+            <button id="btn-stop-share" class="hide bg-red-600 hover:bg-red-500 text-white font-semibold py-3 px-8 rounded-full transition duration-200 flex items-center shadow-[0_0_15px_rgba(220,38,38,0.4)]">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path></svg>
+                Stop Sharing
+            </button>
+        </footer>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Environment variables
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'webrtc-screenshare-default';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        
+        let app, db, auth, userId;
+
+        // Application State
+        let currentRoomId = null;
+        let isBroadcaster = false;
+        let localStream = null;
+        let myConnectionId = null; // Used by viewers to identify their specific peer connection intent
+        
+        // WebRTC State
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+        const peerConnections = {}; // Broadcaster: Maps connectionId -> RTCPeerConnection
+        let viewerPc = null; // Viewer: Single RTCPeerConnection to broadcaster
+        
+        // Firestore Subscriptions
+        let roomUnsubscribe = null;
+        let signalsUnsubscribe = null;
+
+        // UI Elements
+        const screens = {
+            loading: document.getElementById('loading-screen'),
+            home: document.getElementById('home-screen'),
+            room: document.getElementById('room-screen')
+        };
+        const mainVideo = document.getElementById('main-video');
+        const videoPlaceholder = document.getElementById('video-placeholder');
+        const statusText = document.getElementById('status-text');
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bg = type === 'error' ? 'bg-red-600' : (type === 'success' ? 'bg-green-600' : 'bg-gray-800');
+            toast.className = `${bg} text-white px-4 py-3 rounded-lg shadow-lg flex items-center border border-white/10 toast-enter-active`;
+            toast.innerHTML = `<span class="flex-1">${message}</span>
+                               <button class="ml-4 text-white/70 hover:text-white" onclick="this.parentElement.remove()">
+                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                               </button>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.remove('toast-enter-active');
+                toast.classList.add('toast-exit-active');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        function switchScreen(screenName) {
+            Object.values(screens).forEach(s => s.classList.add('hide'));
+            screens[screenName].classList.remove('hide');
+        }
+
+        async function initAuth() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                userId = auth.currentUser.uid;
+                document.getElementById('user-info-display').innerText = `Connected as: ${userId.substring(0, 8)}...`;
+                switchScreen('home');
+            } catch (error) {
+                console.error("Auth error:", error);
+                showToast("Failed to connect to network. " + error.message, 'error');
+                document.getElementById('loading-screen').innerHTML = `<h2 class="text-xl text-red-400">Connection Failed.</h2>`;
+            }
+        }
+
+        async function createRoom() {
+            const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            try {
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+                await setDoc(roomRef, {
+                    broadcasterId: null,
+                    createdAt: Date.now()
+                });
+                joinRoom(roomId);
+            } catch (error) {
+                showToast("Error creating room: " + error.message, "error");
+            }
+        }
+
+        async function joinRoom(roomId) {
+            roomId = roomId.trim().toUpperCase();
+            if (!roomId) return showToast("Please enter a room ID", "error");
+            
+            try {
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+                const roomSnap = await getDoc(roomRef);
+                
+                if (!roomSnap.exists()) {
+                    return showToast("Room not found!", "error");
+                }
+
+                currentRoomId = roomId;
+                document.getElementById('display-room-id').innerText = roomId;
+                switchScreen('room');
+                
+                setupRoomListeners(roomId);
+            } catch (error) {
+                showToast("Error joining room: " + error.message, "error");
+            }
+        }
+
+        function setupRoomListeners(roomId) {
+            let knownBroadcasterId = null;
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+            
+            // Listen to room metadata changes (to know who is sharing)
+            roomUnsubscribe = onSnapshot(roomRef, (snapshot) => {
+                if (!snapshot.exists()) {
+                    leaveRoom();
+                    showToast("Room was closed", "error");
+                    return;
+                }
+                
+                const data = snapshot.data();
+                const newBroadcasterId = data.broadcasterId;
+                
+                if (newBroadcasterId !== knownBroadcasterId) {
+                    knownBroadcasterId = newBroadcasterId;
+                    
+                    if (newBroadcasterId === userId) {
+                        // I am the broadcaster, my UI handles this locally
+                        setStatus("You are sharing your screen");
+                    } else if (newBroadcasterId) {
+                        // Someone else started broadcasting
+                        setStatus("Stream starting...");
+                        startViewing(newBroadcasterId);
+                    } else {
+                        // Broadcast stopped
+                        stopViewing();
+                        setStatus("Waiting for screen share...");
+                    }
+                    updateUIButtons(newBroadcasterId);
+                }
+            }, (err) => showToast("Room sync error", "error"));
+
+            // Listen to WebRTC signals for this specific room
+            // Using a specific collection strictly conforming to /artifacts/{appId}/public/data/{collectionName}
+            const signalsRef = collection(db, 'artifacts', appId, 'public', 'data', `signals_${roomId}`);
+            signalsUnsubscribe = onSnapshot(signalsRef, (snapshot) => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        const signal = change.doc.data();
+                        
+                        // Ignore our own signals
+                        if (signal.senderId === userId) return;
+
+                        // Route signal to appropriate handler based on our role
+                        if (isBroadcaster && signal.receiverId === userId) {
+                            handleBroadcasterSignal(signal);
+                        } else if (!isBroadcaster && signal.receiverId === userId && signal.connectionId === myConnectionId) {
+                            handleViewerSignal(signal);
+                        }
+                    }
+                });
+            }, (err) => console.error("Signals sync error:", err));
+        }
+
+        function setStatus(text) {
+            statusText.innerText = text;
+        }
+
+        function updateUIButtons(activeBroadcasterId) {
+            const btnShare = document.getElementById('btn-share-screen');
+            const btnStop = document.getElementById('btn-stop-share');
+            
+            if (activeBroadcasterId === userId) {
+                btnShare.classList.add('hide');
+                btnStop.classList.remove('hide');
+            } else if (activeBroadcasterId) {
+                // Someone else is sharing, disable share button
+                btnShare.classList.remove('hide');
+                btnStop.classList.add('hide');
+                btnShare.disabled = true;
+                btnShare.classList.add('opacity-50', 'cursor-not-allowed');
+                btnShare.innerHTML = `<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8V7z"></path></svg> Room in use`;
+            } else {
+                // Available to share
+                btnShare.classList.remove('hide');
+                btnStop.classList.add('hide');
+                btnShare.disabled = false;
+                btnShare.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnShare.innerHTML = `<svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg> Share Screen`;
+            }
+        }
+
+        async function sendSignal(payload) {
+            try {
+                const signalsRef = collection(db, 'artifacts', appId, 'public', 'data', `signals_${currentRoomId}`);
+                await addDoc(signalsRef, {
+                    ...payload,
+                    timestamp: Date.now()
+                });
+            } catch (err) {
+                console.error("Failed to send signal:", err);
+            }
+        }
+
+        async function startScreenShare() {
+            try {
+                localStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { cursor: "always" },
+                    audio: true
+                });
+
+                isBroadcaster = true;
+                
+                // Show local preview, mute to prevent audio feedback
+                mainVideo.srcObject = localStream;
+                mainVideo.muted = true;
+                showVideoElement();
+
+                // Update room state
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+                await updateDoc(roomRef, { broadcasterId: userId });
+
+                // Handle system stop sharing (e.g. browser bar "Stop Sharing" button)
+                localStream.getVideoTracks()[0].onended = () => {
+                    stopScreenShare();
+                };
+
+            } catch (error) {
+                console.error("Error capturing screen:", error);
+                showToast("Could not capture screen. Permission denied?", "error");
+            }
+        }
+
+        async function stopScreenShare() {
+            if (!isBroadcaster) return;
+            
+            // Stop tracks
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            
+            // Close all peer connections
+            Object.values(peerConnections).forEach(pc => pc.close());
+            for (let id in peerConnections) delete peerConnections[id];
+            
+            isBroadcaster = false;
+            hideVideoElement();
+            
+            try {
+                // Release room
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomId);
+                await updateDoc(roomRef, { broadcasterId: null });
+            } catch (err) {
+                console.error("Failed to release room", err);
+            }
+        }
+
+        async function handleBroadcasterSignal(signal) {
+            const { type, senderId, connectionId } = signal;
+
+            if (type === 'join') {
+                // A viewer wants to connect
+                const pc = new RTCPeerConnection(rtcConfig);
+                peerConnections[connectionId] = pc;
+
+                // Add local stream tracks to PC
+                if (localStream) {
+                    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+                }
+
+                // Handle ICE candidates
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        sendSignal({
+                            type: 'candidate',
+                            senderId: userId,
+                            receiverId: senderId,
+                            connectionId: connectionId,
+                            candidate: JSON.parse(JSON.stringify(event.candidate))
+                        });
+                    }
+                };
+
+                // Cleanup on disconnect
+                pc.onconnectionstatechange = () => {
+                    if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+                        pc.close();
+                        delete peerConnections[connectionId];
+                    }
+                };
+
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    await sendSignal({
+                        type: 'offer',
+                        senderId: userId,
+                        receiverId: senderId,
+                        connectionId: connectionId,
+                        sdp: JSON.parse(JSON.stringify(offer))
+                    });
+                } catch (err) {
+                    console.error("Broadcaster offer error:", err);
+                }
+
+            } else if (type === 'answer') {
+                const pc = peerConnections[connectionId];
+                if (pc) {
+                    try {
+                        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                    } catch (err) {
+                        console.error("Error setting remote answer:", err);
+                    }
+                }
+            } else if (type === 'candidate') {
+                const pc = peerConnections[connectionId];
+                if (pc) {
+                    try {
+                        await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                    } catch (err) {
+                        console.error("Error adding viewer candidate:", err);
+                    }
+                }
+            }
+        }
+
+        async function startViewing(broadcasterId) {
+            // Generate a unique session ID for this viewing attempt
+            myConnectionId = crypto.randomUUID();
+            
+            // Send join signal to alert broadcaster to send us an offer
+            await sendSignal({
+                type: 'join',
+                senderId: userId,
+                receiverId: broadcasterId,
+                connectionId: myConnectionId
+            });
+        }
+
+        function stopViewing() {
+            if (viewerPc) {
+                viewerPc.close();
+                viewerPc = null;
+            }
+            myConnectionId = null;
+            hideVideoElement();
+        }
+
+        async function handleViewerSignal(signal) {
+            const { type, senderId, connectionId } = signal; // senderId is broadcasterId
+
+            if (type === 'offer') {
+                if (viewerPc) viewerPc.close(); // Cleanup previous if any
+                
+                viewerPc = new RTCPeerConnection(rtcConfig);
+                
+                viewerPc.ontrack = (event) => {
+                    if (event.streams && event.streams[0]) {
+                        mainVideo.srcObject = event.streams[0];
+                        mainVideo.muted = false; // Viewers can hear audio if available
+                        showVideoElement();
+                    }
+                };
+
+                viewerPc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        sendSignal({
+                            type: 'candidate',
+                            senderId: userId,
+                            receiverId: senderId,
+                            connectionId: connectionId,
+                            candidate: JSON.parse(JSON.stringify(event.candidate))
+                        });
+                    }
+                };
+
+                viewerPc.onconnectionstatechange = () => {
+                    if (['disconnected', 'failed', 'closed'].includes(viewerPc.connectionState)) {
+                        stopViewing();
+                        setStatus("Stream disconnected");
+                    }
+                };
+
+                try {
+                    await viewerPc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                    const answer = await viewerPc.createAnswer();
+                    await viewerPc.setLocalDescription(answer);
+                    
+                    await sendSignal({
+                        type: 'answer',
+                        senderId: userId,
+                        receiverId: senderId,
+                        connectionId: connectionId,
+                        sdp: JSON.parse(JSON.stringify(answer))
+                    });
+                } catch (err) {
+                    console.error("Viewer answer error:", err);
+                }
+
+            } else if (type === 'candidate') {
+                if (viewerPc) {
+                    try {
+                        await viewerPc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                    } catch (err) {
+                        console.error("Error adding broadcaster candidate:", err);
+                    }
+                }
+            }
+        }
+
+        function showVideoElement() {
+            videoPlaceholder.classList.add('opacity-0');
+            setTimeout(() => videoPlaceholder.classList.add('hide'), 300);
+            mainVideo.classList.remove('opacity-0');
+        }
+
+        function hideVideoElement() {
+            mainVideo.srcObject = null;
+            mainVideo.classList.add('opacity-0');
+            videoPlaceholder.classList.remove('hide');
+            // Small delay for fade in
+            setTimeout(() => videoPlaceholder.classList.remove('opacity-0'), 50);
+        }
+
+        async function leaveRoom() {
+            if (isBroadcaster) {
+                await stopScreenShare();
+            } else {
+                stopViewing();
+            }
+            
+            if (roomUnsubscribe) { roomUnsubscribe(); roomUnsubscribe = null; }
+            if (signalsUnsubscribe) { signalsUnsubscribe(); signalsUnsubscribe = null; }
+            
+            currentRoomId = null;
+            document.getElementById('input-room-id').value = '';
+            switchScreen('home');
+        }
+
+        // Event Listeners
+        document.getElementById('btn-create-room').addEventListener('click', createRoom);
+        
+        document.getElementById('btn-join-room').addEventListener('click', () => {
+            const id = document.getElementById('input-room-id').value;
+            joinRoom(id);
+        });
+        
+        document.getElementById('input-room-id').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') joinRoom(e.target.value);
+        });
+
+        document.getElementById('btn-leave-room').addEventListener('click', leaveRoom);
+        
+        document.getElementById('btn-share-screen').addEventListener('click', startScreenShare);
+        document.getElementById('btn-stop-share').addEventListener('click', stopScreenShare);
+
+        document.getElementById('btn-copy-room').addEventListener('click', () => {
+            if (currentRoomId) {
+                // Using modern clipboard API if available, fallback to execCommand
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(currentRoomId)
+                        .then(() => showToast("Room ID copied!", "success"))
+                        .catch(err => copyFallback(currentRoomId));
+                } else {
+                    copyFallback(currentRoomId);
+                }
+            }
+        });
+
+        function copyFallback(text) {
+            try {
+                const el = document.createElement('textarea');
+                el.value = text;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                showToast("Room ID copied!", "success");
+            } catch (err) {
+                showToast("Failed to copy", "error");
+            }
+        }
+
+        // Start initialization
+        window.addEventListener('load', initAuth);
+    </script>
+</body>
+</html>
